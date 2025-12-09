@@ -10,9 +10,9 @@ terraform {
 }
 
 provider "google" {
-  project     = var.gcp_project_id
-  region      = var.gcp_region
-  credentials = file(var.gcp_credentials_file)
+  project = var.gcp_project_id
+  region  = var.gcp_region
+  # NO credentials line - will use ADC or gcloud auth
 }
 
 resource "google_compute_instance" "student_app_vm" {
@@ -36,7 +36,7 @@ resource "google_compute_instance" "student_app_vm" {
     ssh-keys = "ubuntu:${file(var.ssh_pub_key_file)}"
   }
 
-tags = ["student-app", "http-server"]
+  tags = ["student-app", "http-server"]
 }
 
 resource "google_compute_firewall" "allow_app_ports" {
@@ -49,7 +49,7 @@ resource "google_compute_firewall" "allow_app_ports" {
   }
 
   source_ranges = ["0.0.0.0/0"]
-target_tags   = ["http-server"]
+  target_tags   = ["http-server"]
 }
 
 output "vm_public_ip" {
