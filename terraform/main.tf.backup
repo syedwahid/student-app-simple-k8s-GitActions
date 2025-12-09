@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.0.0"
+  
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -9,12 +10,11 @@ terraform {
 }
 
 provider "google" {
-  project     = var.gcp_project_id
-  region      = var.gcp_region
-  credentials = file(var.gcp_credentials_file)
+  project = var.gcp_project_id
+  region  = var.gcp_region
+  # NO credentials line - will use ADC or gcloud auth
 }
 
-# Create VM instance
 resource "google_compute_instance" "student_app_vm" {
   name         = "student-app-vm-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
   machine_type = "e2-medium"
@@ -39,7 +39,6 @@ resource "google_compute_instance" "student_app_vm" {
   tags = ["student-app", "http-server"]
 }
 
-# Firewall rules
 resource "google_compute_firewall" "allow_app_ports" {
   name    = "allow-student-app-ports"
   network = "default"

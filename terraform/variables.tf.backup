@@ -15,6 +15,11 @@ variable "gcp_zone" {
   default     = "us-central1-a"
 }
 
+variable "gcp_credentials_file" {
+  description = "Path to GCP credentials JSON file"
+  type        = string
+}
+
 variable "ssh_pub_key_file" {
   description = "Path to SSH public key file"
   type        = string
