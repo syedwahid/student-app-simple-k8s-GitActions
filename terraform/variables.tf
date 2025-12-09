@@ -20,13 +20,13 @@ variable "gcp_credentials_file" {
   type        = string
 }
 
-variable "ssh_user" {
-  description = "SSH username"
-  type        = string
-  default     = "ubuntu"
-}
-
 variable "ssh_pub_key_file" {
   description = "Path to SSH public key file"
   type        = string
+}
+
+variable "ssh_private_key_file" {
+  description = "Path to SSH private key file"
+  type        = string
+  default     = "generated_ssh_key"
 }

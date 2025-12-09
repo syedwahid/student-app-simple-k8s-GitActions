@@ -6,6 +6,10 @@
 terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.*
+terraform/generated_ssh_key
+terraform/ssh_key
+terraform/ssh_key.pub
+terraform/gcp-creds.json
 
 # Node.js
 node_modules/
@@ -26,6 +30,11 @@ docker-compose.yml
 .env.development.local
 .env.test.local
 .env.production.local
+gcp-creds.json
+id_rsa
+id_rsa.pub
+ssh_key
+ssh_key.pub
 
 # OS
 .DS_Store
@@ -40,3 +49,6 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Local
+*.local
