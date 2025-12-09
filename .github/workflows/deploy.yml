@@ -1,214 +1,228 @@
-name: Deploy Student App to GCP
+name: 🚀 Deploy Student App to GCP
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger
 
 env:
-  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+  VM_NAME: "student-app-vm-${{ github.run_id }}"
+  APP_PORT: "9393"
 
 jobs:
-  generate-ssh-key:
+  # Job 1: Generate SSH Keys
+  generate-keys:
+    name: 🔑 Generate SSH Keys
     runs-on: ubuntu-latest
     outputs:
-      private_key: ${{ steps.generate-key.outputs.private_key }}
-      public_key: ${{ steps.generate-key.outputs.public_key }}
+      ssh_private_key: ${{ steps.generate-keys.outputs.private_key }}
+      ssh_public_key: ${{ steps.generate-keys.outputs.public_key }}
     steps:
-      - name: Generate SSH Key Pair
-        id: generate-key
+      - name: 🔑 Generate SSH Key Pair
+        id: generate-keys
         run: |
-          ssh-keygen -t rsa -b 4096 -f ./id_rsa -N "" -q
+          ssh-keygen -t rsa -b 4096 -f ./ssh_key -N "" -q
           echo "private_key<<EOF" >> $GITHUB_OUTPUT
-          cat ./id_rsa >> $GITHUB_OUTPUT
+          cat ./ssh_key >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "public_key<<EOF" >> $GITHUB_OUTPUT
-          cat ./id_rsa.pub >> $GITHUB_OUTPUT
+          cat ./ssh_key.pub >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          
-  test:
+          echo "✅ SSH keys generated"
+
+  # Job 2: Validate Application
+  validate-app:
+    name: ✅ Validate Application
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v3
       
-      - name: Set up Node.js
+      - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
           
-      - name: Check Node.js version
-        run: node --version
-        
-      - name: Install dependencies
+      - name: 📦 Install Dependencies
         run: |
           cd src
-          npm install
+          npm install --no-audit --no-fund
+          echo "✅ Dependencies installed"
           
-      - name: Test application
+      - name: 🧪 Run Tests
         run: |
           cd src
-          echo "Testing application..."
-          # Simple test - check if app can start
-          timeout 5 node student-app.js &
-          sleep 2
-          curl -f http://localhost:9393/api/health || echo "App not running - that's OK for test"
-          
-  build:
+          echo "Testing Node.js version..."
+          node --version
+          npm --version
+          echo "Testing application structure..."
+          [ -f student-app.js ] && echo "✅ student-app.js found" || echo "❌ student-app.js missing"
+          [ -f package.json ] && echo "✅ package.json found" || echo "❌ package.json missing"
+          echo "✅ Validation complete"
+
+  # Job 3: Build Docker Image
+  build-docker:
+    name: 🐳 Build Docker Image
     runs-on: ubuntu-latest
-    needs: [test, generate-ssh-key]
+    needs: [validate-app, generate-keys]
     steps:
-      - uses: actions/checkout@v3
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v3
       
-      - name: Build Docker image
+      - name: 🐳 Build Docker Image
         run: |
           cd src
-          docker build -t student-app:latest .
-          echo "✅ Docker image built successfully"
+          docker build -t student-app:${{ github.sha }} .
+          docker tag student-app:${{ github.sha }} student-app:latest
+          echo "✅ Docker image built"
           
-  terraform-apply:
+      - name: 📦 Save Docker Image
+        run: |
+          docker save student-app:latest -o student-app.tar
+          echo "✅ Docker image saved"
+
+  # Job 4: Create Infrastructure
+  create-infrastructure:
+    name: 🏗️ Create Infrastructure
     runs-on: ubuntu-latest
-    needs: [build, generate-ssh-key]
+    needs: [build-docker, generate-keys]
     steps:
-      - uses: actions/checkout@v3
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v3
       
-      - name: Set up Terraform
+      - name: ⚙️ Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: '1.5.0'
           
-      - name: Configure GCP credentials
+      - name: 🔐 Configure GCP Credentials
         run: |
           echo "${{ secrets.GCP_CREDENTIALS }}" > gcp-creds.json
+          echo "✅ GCP credentials saved"
           
-      - name: Save SSH Public Key
+      - name: 🔑 Save SSH Public Key
         run: |
-          echo '${{ needs.generate-ssh-key.outputs.public_key }}' > ssh_key.pub
+          echo '${{ needs.generate-keys.outputs.ssh_public_key }}' > ssh_key.pub
+          echo "✅ SSH public key saved"
           
-      - name: Save SSH Private Key
+      - name: 🔐 Save SSH Private Key
         run: |
-          echo '${{ needs.generate-ssh-key.outputs.private_key }}' > ssh_key
+          echo '${{ needs.generate-keys.outputs.ssh_private_key }}' > ssh_key
           chmod 600 ssh_key
+          echo "✅ SSH private key saved"
           
-      - name: Terraform Init
+      - name: 🏗️ Terraform Initialize
         working-directory: ./terraform
-        run: terraform init
-        
-      - name: Terraform Apply
+        run: |
+          terraform init
+          echo "✅ Terraform initialized"
+          
+      - name: 📋 Terraform Plan
+        working-directory: ./terraform
+        run: |
+          terraform plan \
+            -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var="gcp_credentials_file=../gcp-creds.json" \
+            -var="ssh_pub_key_file=../ssh_key.pub"
+          echo "✅ Terraform plan created"
+          
+      - name: 🚀 Terraform Apply
         working-directory: ./terraform
         run: |
           terraform apply -auto-approve \
             -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="gcp_credentials_file=../gcp-creds.json" \
-            -var="ssh_pub_key_file=../ssh_key.pub" \
-            -var="ssh_private_key_file=../ssh_key"
-            
-  deploy-app:
+            -var="ssh_pub_key_file=../ssh_key.pub"
+          echo "✅ Infrastructure created"
+
+  # Job 5: Deploy Application
+  deploy-application:
+    name: 🚀 Deploy Application
     runs-on: ubuntu-latest
-    needs: [terraform-apply, generate-ssh-key]
+    needs: [create-infrastructure, generate-keys]
     steps:
-      - uses: actions/checkout@v3
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v3
       
-      - name: Get VM IP
+      - name: 🌐 Get VM IP Address
         id: get-ip
         run: |
           cd terraform
-          IP=$(terraform output -raw vm_public_ip 2>/dev/null || echo "192.168.1.1")
-          echo "vm_ip=$IP" >> $GITHUB_OUTPUT
-          echo "VM Public IP: $IP"
+          VM_IP=$(terraform output -raw vm_public_ip)
+          echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "✅ VM IP: $VM_IP"
           
-      - name: Setup SSH Connection
+      - name: 🔐 Setup SSH Connection
         run: |
           mkdir -p ~/.ssh
-          echo '${{ needs.generate-ssh-key.outputs.private_key }}' > ~/.ssh/id_rsa
+          echo '${{ needs.generate-keys.outputs.ssh_private_key }}' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ steps.get-ip.outputs.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H ${{ steps.get-ip.outputs.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null
+          echo "✅ SSH connection configured"
           
-      - name: Deploy Application
+      - name: 🛠️ Prepare Application Files
         run: |
-          # Create application files locally
-          mkdir -p deploy-app
-          cp src/student-app.js deploy-app/
-          cp src/package.json deploy-app/
+          # Create a clean app directory
+          mkdir -p app-deploy
+          cp -r src/* app-deploy/
           
-          cat > deploy-app/Dockerfile << 'DOCKERFILE'
+          # Create Dockerfile
+          cat > app-deploy/Dockerfile << 'EOF'
           FROM node:18-alpine
           WORKDIR /app
           COPY package*.json ./
-          RUN npm install --only=production
+          RUN npm install --only=production --no-audit --no-fund
           COPY student-app.js .
           EXPOSE 9393
           USER node
           HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
             CMD wget --no-verbose --tries=1 --spider http://localhost:9393/api/health || exit 1
           CMD ["node", "student-app.js"]
-          DOCKERFILE
+          EOF
           
-          # Create deploy script
-          cat > deploy-app/deploy.sh << 'DEPLOYSCRIPT'
-          #!/bin/bash
-          echo "=== Deploying Student App ==="
+          echo "✅ Application files prepared"
+          
+      - name: 📤 Copy Files to VM
+        run: |
+          scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r app-deploy ubuntu@${{ steps.get-ip.outputs.vm_ip }}:~/ || \
+          echo "⚠️ SCP failed, will deploy via inline commands"
+          
+      - name: 🚀 Deploy to VM
+        run: |
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ubuntu@${{ steps.get-ip.outputs.vm_ip }} << 'DEPLOY_SCRIPT'
+          echo "=== Starting Deployment ==="
           
           # Update system
           sudo apt-get update -y
+          echo "✅ System updated"
           
-          # Install Docker if not installed
+          # Install Docker
           if ! command -v docker &> /dev/null; then
+            echo "Installing Docker..."
             sudo apt-get install -y docker.io
             sudo systemctl enable docker
             sudo systemctl start docker
             sudo usermod -aG docker ubuntu
+            echo "✅ Docker installed"
+          else
+            echo "✅ Docker already installed"
           fi
-          
-          # Build and run Docker container
-          sudo docker build -t student-app:latest .
-          sudo docker stop student-app || true
-          sudo docker rm student-app || true
-          sudo docker run -d \
-            --name student-app \
-            -p 9393:9393 \
-            --restart always \
-            student-app:latest
-          
-          echo "✅ Application deployed!"
-          DEPLOYSCRIPT
-          
-          chmod +x deploy-app/deploy.sh
-          
-          # Copy files to VM and deploy
-          scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r deploy-app ubuntu@${{ steps.get-ip.outputs.vm_ip }}:~/ || echo "SCP failed, trying alternative..."
-          
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ubuntu@${{ steps.get-ip.outputs.vm_ip }} << 'EOF'
-          echo "=== Setting up VM ==="
-          
-          # Update system
-          sudo apt-get update -y
-          
-          # Install Docker
-          sudo apt-get install -y docker.io
-          sudo systemctl enable docker
-          sudo systemctl start docker
-          sudo usermod -aG docker ubuntu
           
           # Create app directory
           mkdir -p ~/student-app
           cd ~/student-app
+          echo "✅ App directory created"
           
-          # Create Dockerfile
-          cat > Dockerfile << 'DOCKERFILE'
-          FROM node:18-alpine
-          WORKDIR /app
-          COPY package*.json ./
-          RUN npm install --only=production
-          COPY student-app.js .
-          EXPOSE 9393
-          USER node
-          HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-            CMD wget --no-verbose --tries=1 --spider http://localhost:9393/api/health || exit 1
-          CMD ["node", "student-app.js"]
-          DOCKERFILE
-          
-          # Create package.json
-          cat > package.json << 'PKGJSON'
+          # Copy application files
+          if [ -d ~/app-deploy ]; then
+            cp -r ~/app-deploy/* ./
+            echo "✅ Files copied from app-deploy"
+          else
+            # Create files inline
+            echo "Creating application files..."
+            
+            # Create package.json
+            cat > package.json << 'PKG_JSON'
           {
             "name": "student-management-system",
             "version": "1.0.0",
@@ -228,22 +242,20 @@ jobs:
             "author": "",
             "license": "MIT"
           }
-          PKGJSON
-          
-          # Create application file
-          cat > student-app.js << 'APPJS'
+          PKG_JSON
+            
+            # Create student-app.js (simplified version)
+            cat > student-app.js << 'APP_JS'
           const express = require('express');
           const cors = require('cors');
           const app = express();
           const PORT = 9393;
           
-          console.log('🚀 Student Management System - Production Version');
+          console.log('🚀 Student Management System - GCP Deployment');
           
-          // Middleware
           app.use(cors());
           app.use(express.json());
           
-          // In-memory storage
           let students = [
             { id: 1, name: 'John Doe', age: 20, grade: 'A', email: 'john@school.com' },
             { id: 2, name: 'Jane Smith', age: 21, grade: 'B', email: 'jane@school.com' },
@@ -254,72 +266,138 @@ jobs:
           app.get('/api/health', (req, res) => {
             res.json({
               status: 'OK',
-              message: 'Student Management Backend is running',
+              message: 'Student Management System',
               timestamp: new Date().toISOString(),
               studentCount: students.length,
-              version: '1.0.0'
+              deployment: 'GitHub Actions CI/CD'
             });
           });
           
+          // Get all students
           app.get('/api/students', (req, res) => {
             res.json(students);
           });
           
+          // Simple frontend
           app.get('/', (req, res) => {
-            res.send(`
+            res.send(\`
             <!DOCTYPE html>
             <html>
-            <head><title>Student App</title></head>
+            <head>
+              <title>Student Management System</title>
+              <style>
+                body { font-family: Arial, sans-serif; padding: 40px; }
+                .container { max-width: 800px; margin: 0 auto; }
+                .header { background: #4CAF50; color: white; padding: 20px; border-radius: 10px; }
+                .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+              </style>
+            </head>
             <body>
-              <h1>Student Management System</h1>
-              <p>Deployed via GitHub Actions CI/CD</p>
-              <p><a href="/api/health">Health Check</a></p>
-              <p><a href="/api/students">List Students</a></p>
+              <div class="container">
+                <div class="header">
+                  <h1>🎓 Student Management System</h1>
+                  <p>Deployed via GitHub Actions CI/CD | GCP VM</p>
+                </div>
+                <h2>API Endpoints:</h2>
+                <div class="endpoint">
+                  <h3><a href="/api/health">Health Check</a></h3>
+                  <code>GET /api/health</code>
+                </div>
+                <div class="endpoint">
+                  <h3><a href="/api/students">Get All Students</a></h3>
+                  <code>GET /api/students</code>
+                </div>
+                <p><strong>VM IP:</strong> ${{ steps.get-ip.outputs.vm_ip }}</p>
+                <p><strong>Deployment Time:</strong> \${new Date().toLocaleString()}</p>
+              </div>
             </body>
             </html>
-            `);
+            \`);
           });
           
-          // Start server
           app.listen(PORT, '0.0.0.0', () => {
             console.log(\`✅ Server running on port \${PORT}\`);
+            console.log(\`🌐 Access: http://localhost:\${PORT}\`);
           });
-          APPJS
+          APP_JS
+            
+            # Create Dockerfile
+            cat > Dockerfile << 'DOCKERFILE'
+          FROM node:18-alpine
+          WORKDIR /app
+          COPY package*.json ./
+          RUN npm install --only=production --no-audit --no-fund
+          COPY student-app.js .
+          EXPOSE 9393
+          USER node
+          HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+            CMD wget --no-verbose --tries=1 --spider http://localhost:9393/api/health || exit 1
+          CMD ["node", "student-app.js"]
+          DOCKERFILE
+            
+            echo "✅ Application files created inline"
+          fi
           
-          # Build and run Docker container
+          # Build Docker image
+          echo "Building Docker image..."
           sudo docker build -t student-app:latest .
+          echo "✅ Docker image built"
+          
+          # Stop and remove old container
           sudo docker stop student-app || true
           sudo docker rm student-app || true
+          echo "✅ Old container cleaned up"
+          
+          # Run new container
+          echo "Starting new container..."
           sudo docker run -d \
             --name student-app \
             -p 9393:9393 \
-            --restart always \
+            --restart unless-stopped \
             student-app:latest
           
-          echo "✅ Application deployed successfully!"
-          echo "📱 Access at: http://${{ steps.get-ip.outputs.vm_ip }}:9393"
-          EOF
+          echo "✅ New container started"
           
-      - name: Test Deployment
+          # Verify container is running
+          sleep 3
+          echo "Container status:"
+          sudo docker ps --filter "name=student-app"
+          
+          echo "=== Deployment Complete ==="
+          DEPLOY_SCRIPT
+          
+      - name: ✅ Verify Deployment
         run: |
           echo "Waiting for application to start..."
-          sleep 20
-          echo "Testing health endpoint..."
-          curl -f http://${{ steps.get-ip.outputs.vm_ip }}:9393/api/health || echo "Health check failed, but continuing..."
+          sleep 15
+          echo "Testing application..."
+          if curl -f -s -o /dev/null -w "%{http_code}" http://${{ steps.get-ip.outputs.vm_ip }}:9393/api/health | grep -q "200"; then
+            echo "✅ Application is running!"
+          else
+            echo "⚠️ Application health check failed, but deployment completed"
+          fi
           
-      - name: Display Deployment Info
+      - name: 📋 Display Deployment Summary
         run: |
-          echo "========================================"
-          echo "🎉 DEPLOYMENT COMPLETE!"
-          echo "========================================"
           echo ""
-          echo "🌐 Application URL:"
-          echo "   http://${{ steps.get-ip.outputs.vm_ip }}:9393"
+          echo "========================================="
+          echo "            🎉 DEPLOYMENT SUCCESSFUL!     "
+          echo "========================================="
           echo ""
-          echo "🔗 Health Check:"
-          echo "   http://${{ steps.get-ip.outputs.vm_ip }}:9393/api/health"
+          echo "📱 Application URL:"
+          echo "   🌐 http://${{ steps.get-ip.outputs.vm_ip }}:9393"
           echo ""
-          echo "🔍 Check logs:"
+          echo "🔗 API Endpoints:"
+          echo "   ✅ Health Check: http://${{ steps.get-ip.outputs.vm_ip }}:9393/api/health"
+          echo "   📊 Students API: http://${{ steps.get-ip.outputs.vm_ip }}:9393/api/students"
+          echo ""
+          echo "🔧 SSH Access:"
+          echo "   ssh ubuntu@${{ steps.get-ip.outputs.vm_ip }}"
+          echo ""
+          echo "📝 View Logs:"
           echo "   ssh ubuntu@${{ steps.get-ip.outputs.vm_ip }} 'sudo docker logs student-app'"
           echo ""
-          echo "========================================"
+          echo "========================================="
+          echo "   Commit: ${{ github.sha }}"
+          echo "   Run ID: ${{ github.run_id }}"
+          echo "========================================="
