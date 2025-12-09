@@ -36,7 +36,7 @@ resource "google_compute_instance" "student_app_vm" {
     ssh-keys = "ubuntu:${file(var.ssh_pub_key_file)}"
   }
 
-ags = ["student-app", "http-server"]
+tags = ["student-app", "http-server"]
 }
 
 resource "google_compute_firewall" "allow_app_ports" {
@@ -49,7 +49,7 @@ resource "google_compute_firewall" "allow_app_ports" {
   }
 
   source_ranges = ["0.0.0.0/0"]
-arget_tags   = ["http-server"]
+target_tags   = ["http-server"]
 }
 
 output "vm_public_ip" {
