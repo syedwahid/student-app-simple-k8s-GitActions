@@ -1,18 +1,29 @@
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 4.0"
+    }
+  }
+}
+
 provider "google" {
   project     = var.gcp_project_id
   region      = var.gcp_region
   credentials = file(var.gcp_credentials_file)
 }
 
-resource "google_compute_instance" "student_app" {
-  name         = "student-app-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
+# Create VM instance
+resource "google_compute_instance" "student_app_vm" {
+  name         = "student-app-vm-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
   machine_type = "e2-medium"
   zone         = var.gcp_zone
 
   boot_disk {
     initialize_params {
       image = "ubuntu-os-cloud/ubuntu-2204-lts"
-      size  = 20
+      size  = 30
     }
   }
 
@@ -26,14 +37,11 @@ resource "google_compute_instance" "student_app" {
   }
 
   tags = ["student-app", "http-server"]
-
-  lifecycle {
-    create_before_destroy = true
-  }
 }
 
+# Firewall rules
 resource "google_compute_firewall" "allow_app_ports" {
-  name    = "allow-student-app-${formatdate("YYYYMMDD", timestamp())}"
+  name    = "allow-student-app-ports"
   network = "default"
 
   allow {
