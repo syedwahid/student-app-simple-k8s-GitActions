@@ -1,6 +1,5 @@
 terraform {
-  required_version = ">= 1.0.0"
-  
+  required_version = ">= 1.0"
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -15,6 +14,7 @@ provider "google" {
   credentials = file(var.gcp_credentials_file)
 }
 
+# Create VM instance
 resource "google_compute_instance" "student_app_vm" {
   name         = "student-app-vm-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
   machine_type = "e2-medium"
@@ -36,9 +36,10 @@ resource "google_compute_instance" "student_app_vm" {
     ssh-keys = "ubuntu:${file(var.ssh_pub_key_file)}"
   }
 
-ags = ["student-app", "http-server"]
+  tags = ["student-app", "http-server"]
 }
 
+# Firewall rules
 resource "google_compute_firewall" "allow_app_ports" {
   name    = "allow-student-app-ports"
   network = "default"
@@ -49,7 +50,7 @@ resource "google_compute_firewall" "allow_app_ports" {
   }
 
   source_ranges = ["0.0.0.0/0"]
-arget_tags   = ["http-server"]
+  target_tags   = ["http-server"]
 }
 
 output "vm_public_ip" {
